@@ -25,4 +25,6 @@ export interface OpenFile {
   name: string;
   contents: string;
   dirty: boolean;
+  /** LSP document version, bumped on every change. */
+  version: number;
 }

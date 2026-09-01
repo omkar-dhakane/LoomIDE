@@ -16,6 +16,8 @@ import {
   watchWorkspaceFolder,
   writeWorkspaceFile,
 } from "./ipc/files";
+import { lspDidChange, lspDidClose, lspDidOpen } from "./ipc/lsp";
+import { serverForLanguage, startLanguageServers, uriForPath } from "./lsp/servers";
 import type { FileTreeNode, OpenFile } from "./types/fs";
 import "./styles.css";
 
@@ -56,7 +58,13 @@ function App() {
     setExpandedPaths(new Set([result.rootPath]));
     setOpenFiles([]);
     setActivePath(null);
-    setStatus(fileName(result.rootPath));
+
+    const started = await startLanguageServers(result.rootPath);
+    setStatus(
+      started.length > 0
+        ? `${fileName(result.rootPath)} — LSP: ${started.join(", ")}`
+        : fileName(result.rootPath),
+    );
   }, []);
 
   const handleToggleDirectory = useCallback((path: string) => {
@@ -83,10 +91,21 @@ function App() {
       const contents = await readWorkspaceFile(node.path);
       setOpenFiles((current) => [
         ...current,
-        { path: node.path, name: node.name, contents, dirty: false },
+        { path: node.path, name: node.name, contents, dirty: false, version: 1 },
       ]);
       setActivePath(node.path);
       setStatus(node.name);
+
+      const server = serverForLanguage(languageForPath(node.path));
+      if (server) {
+        void lspDidOpen(
+          server.id,
+          uriForPath(node.path),
+          languageForPath(node.path),
+          1,
+          contents,
+        );
+      }
     },
     [openFiles],
   );
@@ -97,11 +116,19 @@ function App() {
         return;
       }
 
+      const nextVersion = activeFile.version + 1;
       setOpenFiles((current) =>
         current.map((file) =>
-          file.path === activeFile.path ? { ...file, contents, dirty: true } : file,
+          file.path === activeFile.path
+            ? { ...file, contents, dirty: true, version: nextVersion }
+            : file,
         ),
       );
+
+      const server = serverForLanguage(languageForPath(activeFile.path));
+      if (server) {
+        void lspDidChange(server.id, uriForPath(activeFile.path), nextVersion, contents);
+      }
     },
     [activeFile],
   );
@@ -130,6 +157,11 @@ function App() {
         }
         return next;
       });
+
+      const server = serverForLanguage(languageForPath(path));
+      if (server) {
+        void lspDidClose(server.id, uriForPath(path));
+      }
     },
     [activePath],
   );
@@ -335,6 +367,7 @@ function App() {
         <div className="editor-surface">
           {activeFile ? (
             <MonacoEditor
+              path={uriForPath(activeFile.path)}
               value={activeFile.contents}
               language={languageForPath(activeFile.path)}
               onChange={handleChangeActiveFile}
