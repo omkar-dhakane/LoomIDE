@@ -1,0 +1,7 @@
+node_modules/
+dist/
+target/
+src-ui/dist/
+src-core/target/
+*.log
+.DS_Store

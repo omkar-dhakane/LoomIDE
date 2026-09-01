@@ -1,0 +1,30 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "LoomIDE",
+  "version": "0.1.0",
+  "identifier": "com.loomide.app",
+  "build": {
+    "beforeDevCommand": "npm run dev --workspace src-ui",
+    "beforeBuildCommand": "npm run build --workspace src-ui",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../src-ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "LoomIDE",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}
