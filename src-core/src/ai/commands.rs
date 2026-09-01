@@ -5,11 +5,23 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
+/// Attach the stored API key when the caller did not supply one, so the key
+/// never has to round-trip through the webview.
+fn with_stored_key(mut request: ChatRequest, app: &AppHandle) -> ChatRequest {
+    if request.api_key.is_none() || request.api_key.as_deref() == Some("") {
+        if let Ok(Some(key)) = read_key_store(app).map(|mut store| store.remove(&request.provider)) {
+            request.api_key = Some(key);
+        }
+    }
+    request
+}
+
 /// Non-streaming variant: collects the full response and returns it.
 /// Used by the diff-review flow (AI proposes a whole-file rewrite that the
 /// user must approve before anything touches disk).
 #[tauri::command]
-pub async fn ai_complete(request: ChatRequest) -> Result<String, String> {
+pub async fn ai_complete(request: ChatRequest, app: AppHandle) -> Result<String, String> {
+    let request = with_stored_key(request, &app);
     let provider = AiRouter::provider_for(&request.provider).map_err(|error| error.to_string())?;
     let collected = Arc::new(Mutex::new(String::new()));
     let sink = collected.clone();
@@ -71,9 +83,10 @@ pub fn ai_set_api_key(provider: String, key: String, app: AppHandle) -> Result<(
     std::fs::write(path, json).map_err(|error| error.to_string())
 }
 
+/// Whether a key exists for a provider. The key itself never leaves the core.
 #[tauri::command]
-pub fn ai_get_api_key(provider: String, app: AppHandle) -> Result<String, String> {
-    Ok(read_key_store(&app)?.get(&provider).cloned().unwrap_or_default())
+pub fn ai_has_api_key(provider: String, app: AppHandle) -> Result<bool, String> {
+    Ok(read_key_store(&app)?.contains_key(&provider))
 }
 
 /// List the provider ids the router supports.
@@ -86,6 +99,7 @@ pub fn ai_providers() -> Vec<&'static str> {
 /// carrying the same `requestId`; the final chunk has `done: true`.
 #[tauri::command]
 pub fn ai_chat(request: ChatRequest, app: AppHandle) -> Result<(), String> {
+    let request = with_stored_key(request, &app);
     let provider = AiRouter::provider_for(&request.provider).map_err(|error| error.to_string())?;
 
     tauri::async_runtime::spawn(async move {

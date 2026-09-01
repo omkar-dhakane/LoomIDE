@@ -48,10 +48,19 @@ pub async fn open_folder(state: State<'_, FsState>) -> Result<Option<OpenFolderR
     }))
 }
 
+const MAX_READ_BYTES: u64 = 10 * 1024 * 1024;
+
 #[tauri::command]
 pub async fn read_file(path: String, state: State<'_, FsState>) -> Result<String, String> {
     let root = current_root(&state)?;
     let path = ensure_within_root(Path::new(&path), &root).map_err(to_ipc_error)?;
+    let metadata = fs::metadata(&path).await.map_err(|error| error.to_string())?;
+    if metadata.len() > MAX_READ_BYTES {
+        return Err(format!(
+            "File is too large to open ({:.1} MB; limit is 10 MB)",
+            metadata.len() as f64 / (1024.0 * 1024.0)
+        ));
+    }
     fs::read_to_string(path).await.map_err(|error| error.to_string())
 }
 

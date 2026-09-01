@@ -41,8 +41,9 @@ export function aiSetApiKey(provider: string, key: string): Promise<void> {
   return invoke("ai_set_api_key", { provider, key });
 }
 
-export function aiGetApiKey(provider: string): Promise<string> {
-  return invoke("ai_get_api_key", { provider });
+/** Keys never leave the core; the UI can only check whether one is set. */
+export function aiHasApiKey(provider: string): Promise<boolean> {
+  return invoke("ai_has_api_key", { provider });
 }
 
 export function listenToAiChunks(

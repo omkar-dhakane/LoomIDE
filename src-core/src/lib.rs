@@ -2,7 +2,7 @@ mod ai;
 mod fs;
 mod lsp;
 
-use ai::commands::{ai_chat, ai_complete, ai_get_api_key, ai_providers, ai_set_api_key};
+use ai::commands::{ai_chat, ai_complete, ai_has_api_key, ai_providers, ai_set_api_key};
 use fs::commands::{
     create_file, create_folder, delete_path, open_folder, read_file, rename_path, watch_folder,
     write_file,
@@ -43,7 +43,7 @@ pub fn run() {
             ai_complete,
             ai_providers,
             ai_set_api_key,
-            ai_get_api_key
+            ai_has_api_key
         ])
         .run(tauri::generate_context!())
         .expect("failed to run LoomIDE");

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FilePlus, FolderOpen, FolderPlus, MessageSquare, Save, Wand2 } from "lucide-react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { aiComplete, aiGetApiKey } from "./ipc/ai";
+import { aiComplete } from "./ipc/ai";
 import { ChatPanel } from "./components/ChatPanel";
 import { DiffReview } from "./components/DiffReview";
 import { EditorTabs } from "./components/EditorTabs";
@@ -325,12 +325,10 @@ function App() {
     setStatus("AI is editing…");
 
     try {
-      const apiKey = await aiGetApiKey(localStorage.getItem("loomide.ai.provider") ?? "openai");
       const result = await aiComplete({
         requestId: `edit-${Date.now()}`,
         provider: localStorage.getItem("loomide.ai.provider") ?? "openai",
         model: localStorage.getItem("loomide.ai.model") ?? "gpt-4o-mini",
-        apiKey: apiKey || undefined,
         messages: [
           {
             role: "system",

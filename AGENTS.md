@@ -81,8 +81,9 @@ Do not deviate from these without being explicitly asked to reconsider them.
 - **AI router**: done. `src-core/ai` — `ChatProvider` trait + `AiRouter`;
   providers `openai`, `anthropic`, `ollama` (streaming SSE/NDJSON). Commands:
   `ai_chat` (streams `ai-chat-chunk` events), `ai_complete` (whole response, used
-  by the diff-review flow), `ai_set_api_key` / `ai_get_api_key` (keys stored in
-  the app config dir — never in webview storage).
+  by the diff-review flow), `ai_set_api_key` / `ai_has_api_key` (keys stored in
+  the app config dir; the core attaches keys to requests — they never leave the
+  backend; the webview only learns whether a key exists).
 - **Diff-review flow**: done. "AI edit" (wand button) → `DiffReview` modal with
   Monaco DiffEditor; Apply writes via `write_file`, Discard does nothing.
 - **Not built yet**: agent mode, extension/plugin API (`extensions/` is still a

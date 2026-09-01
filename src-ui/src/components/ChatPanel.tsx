@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SendHorizonal, Trash2 } from "lucide-react";
 import {
-  aiGetApiKey,
+  aiHasApiKey,
   aiSetApiKey,
   listenToAiChunks,
   startAiChat,
@@ -41,8 +41,10 @@ export function ChatPanel({ activeFile }: ChatPanelProps) {
     const stored = localStorage.getItem(STORAGE_KEYS.model);
     return stored ?? DEFAULT_MODELS[loadStored(STORAGE_KEYS.provider, "openai")];
   });
-  // API keys live in the Rust core (app config dir), not in webview storage.
-  const [apiKey, setApiKey] = useState("");
+  // API keys live exclusively in the Rust core; here we only track presence.
+  const [hasKey, setHasKey] = useState(false);
+  const [editingKey, setEditingKey] = useState(false);
+  const [keyInput, setKeyInput] = useState("");
   const [includeFile, setIncludeFile] = useState(true);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
@@ -59,9 +61,11 @@ export function ChatPanel({ activeFile }: ChatPanelProps) {
 
   useEffect(() => {
     let cancelled = false;
-    void aiGetApiKey(provider).then((key) => {
+    setEditingKey(false);
+    setKeyInput("");
+    void aiHasApiKey(provider).then((present) => {
       if (!cancelled) {
-        setApiKey(key);
+        setHasKey(present);
       }
     });
     return () => {
@@ -69,13 +73,25 @@ export function ChatPanel({ activeFile }: ChatPanelProps) {
     };
   }, [provider]);
 
-  const updateApiKey = useCallback(
-    (value: string) => {
-      setApiKey(value);
-      void aiSetApiKey(provider, value);
-    },
-    [provider],
-  );
+  const saveKey = useCallback(() => {
+    const value = keyInput.trim();
+    if (!value) {
+      return;
+    }
+    void aiSetApiKey(provider, value).then(() => {
+      setHasKey(true);
+      setEditingKey(false);
+      setKeyInput("");
+    });
+  }, [provider, keyInput]);
+
+  const clearKey = useCallback(() => {
+    void aiSetApiKey(provider, "").then(() => {
+      setHasKey(false);
+      setEditingKey(false);
+      setKeyInput("");
+    });
+  }, [provider]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -154,7 +170,6 @@ export function ChatPanel({ activeFile }: ChatPanelProps) {
         requestId,
         provider,
         model,
-        apiKey: apiKey || undefined,
         messages: [...contextMessages, ...history],
       });
     } catch (error) {
@@ -166,7 +181,7 @@ export function ChatPanel({ activeFile }: ChatPanelProps) {
         return next;
       });
     }
-  }, [input, streaming, includeFile, activeFile, messages, provider, model, apiKey]);
+  }, [input, streaming, includeFile, activeFile, messages, provider, model]);
 
   return (
     <div className="chat-panel">
@@ -193,16 +208,37 @@ export function ChatPanel({ activeFile }: ChatPanelProps) {
           placeholder="model"
           spellCheck={false}
         />
-        {provider !== "ollama" && (
-          <input
-            className="chat-input-compact"
-            type="password"
-            value={apiKey}
-            onChange={(event) => updateApiKey(event.target.value)}
-            placeholder="API key"
-            spellCheck={false}
-          />
-        )}
+        {provider !== "ollama" &&
+          (hasKey && !editingKey ? (
+            <span className="chat-key-state">
+              <span className="chat-key-ok">API key saved</span>
+              <button type="button" className="chat-key-link" onClick={() => setEditingKey(true)}>
+                Change
+              </button>
+              <button type="button" className="chat-key-link danger" onClick={clearKey}>
+                Remove
+              </button>
+            </span>
+          ) : (
+            <>
+              <input
+                className="chat-input-compact"
+                type="password"
+                value={keyInput}
+                onChange={(event) => setKeyInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    saveKey();
+                  }
+                }}
+                placeholder="API key (stored in app config)"
+                spellCheck={false}
+              />
+              <button className="chat-key-link" type="button" onClick={saveKey}>
+                Save
+              </button>
+            </>
+          ))}
         <label className="chat-attach" title="Attach the active file as context">
           <input
             type="checkbox"
