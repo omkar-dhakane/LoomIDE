@@ -1,6 +1,8 @@
+mod ai;
 mod fs;
 mod lsp;
 
+use ai::commands::{ai_chat, ai_providers};
 use fs::commands::{
     create_file, create_folder, delete_path, open_folder, read_file, rename_path, watch_folder,
     write_file,
@@ -31,7 +33,9 @@ pub fn run() {
             lsp_did_change,
             lsp_did_close,
             lsp_completion,
-            lsp_hover
+            lsp_hover,
+            ai_chat,
+            ai_providers
         ])
         .run(tauri::generate_context!())
         .expect("failed to run LoomIDE");

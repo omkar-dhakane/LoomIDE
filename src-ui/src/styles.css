@@ -30,6 +30,131 @@ button {
   background: #1d1c19;
 }
 
+.app-shell.with-chat {
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) 340px;
+}
+
+.chat-column {
+  min-width: 0;
+  border-left: 1px solid #35332e;
+  background: #23211d;
+}
+
+.chat-panel {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.chat-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid #35332e;
+}
+
+.chat-select,
+.chat-input-compact {
+  height: 28px;
+  min-width: 0;
+  border: 1px solid #454239;
+  border-radius: 6px;
+  color: #e8e5dc;
+  background: #2b2924;
+  font: inherit;
+  font-size: 12px;
+  padding: 0 8px;
+}
+
+.chat-select {
+  width: 96px;
+}
+
+.chat-input-compact {
+  flex: 1;
+}
+
+.chat-attach {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  color: #a9a397;
+  font-size: 12px;
+}
+
+.chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-empty {
+  margin: auto;
+  color: #928d81;
+  font-size: 13px;
+}
+
+.chat-message {
+  max-width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.chat-message.user {
+  align-self: flex-end;
+  background: #33423c;
+}
+
+.chat-message.assistant {
+  align-self: flex-start;
+  background: #2b2924;
+}
+
+.chat-message.error {
+  align-self: flex-start;
+  color: #f0a8a0;
+  background: #3a2a28;
+}
+
+.chat-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid #35332e;
+}
+
+.chat-textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  border: 1px solid #454239;
+  border-radius: 7px;
+  color: #e8e5dc;
+  background: #2b2924;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+}
+
+.chat-textarea:focus,
+.chat-select:focus,
+.chat-input-compact:focus {
+  outline: 1px solid #5f8f83;
+}
+
 .sidebar {
   display: flex;
   min-width: 0;

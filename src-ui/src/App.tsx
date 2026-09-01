@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FilePlus, FolderOpen, FolderPlus, Save } from "lucide-react";
+import { FilePlus, FolderOpen, FolderPlus, MessageSquare, Save } from "lucide-react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { ChatPanel } from "./components/ChatPanel";
 import { EditorTabs } from "./components/EditorTabs";
 import { FileTree } from "./components/FileTree";
 import { MonacoEditor } from "./editor/MonacoEditor";
@@ -28,6 +29,7 @@ function App() {
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [status, setStatus] = useState("Ready");
+  const [chatOpen, setChatOpen] = useState(false);
   const unlistenRef = useRef<UnlistenFn | null>(null);
 
   const activeFile = useMemo(
@@ -308,7 +310,7 @@ function App() {
   }, []);
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell${chatOpen ? " with-chat" : ""}`}>
       <aside className="sidebar">
         <div className="sidebar-header">
           <button className="icon-button open-button" type="button" onClick={handleOpenFolder}>
@@ -362,6 +364,14 @@ function App() {
           >
             <Save size={16} />
           </button>
+          <button
+            className="icon-button"
+            type="button"
+            title={chatOpen ? "Close AI chat" : "Open AI chat"}
+            onClick={() => setChatOpen((current) => !current)}
+          >
+            <MessageSquare size={16} />
+          </button>
         </header>
 
         <div className="editor-surface">
@@ -382,6 +392,12 @@ function App() {
           {activeFile ? <span>{activeFile.path}</span> : null}
         </footer>
       </section>
+
+      {chatOpen ? (
+        <aside className="chat-column">
+          <ChatPanel activeFile={activeFile} />
+        </aside>
+      ) : null}
     </main>
   );
 }
