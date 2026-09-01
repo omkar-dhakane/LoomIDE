@@ -61,20 +61,37 @@ impl ChatProvider for Anthropic {
             let response = ensure_success(response).await?;
 
             stream_lines(response, |line| {
-                let Some(data) = line.strip_prefix("data:") else {
-                    return;
-                };
-                let Ok(json) = serde_json::from_str::<serde_json::Value>(data.trim()) else {
-                    return;
-                };
-                if let Some(delta) = json
-                    .pointer("/delta/text")
-                    .and_then(serde_json::Value::as_str)
-                {
-                    on_delta(delta.to_string());
+                if let Some(delta) = extract_delta(line) {
+                    on_delta(delta);
                 }
             })
             .await
         })
+    }
+}
+
+/// Parse one SSE line from the Anthropic stream into a text delta.
+fn extract_delta(line: &str) -> Option<String> {
+    let data = line.strip_prefix("data:")?.trim();
+    let json = serde_json::from_str::<serde_json::Value>(data).ok()?;
+    json.pointer("/delta/text")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_delta;
+
+    #[test]
+    fn parses_content_block_delta() {
+        let line = r#"data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"fn "}}"#;
+        assert_eq!(extract_delta(line).as_deref(), Some("fn "));
+    }
+
+    #[test]
+    fn ignores_ping_and_message_start_events() {
+        assert!(extract_delta(r#"data: {"type":"ping"}"#).is_none());
+        assert!(extract_delta("event: ping").is_none());
     }
 }

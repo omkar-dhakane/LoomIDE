@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SendHorizonal, Trash2 } from "lucide-react";
-import { listenToAiChunks, startAiChat, type AiChatMessage } from "../ipc/ai";
+import {
+  aiGetApiKey,
+  aiSetApiKey,
+  listenToAiChunks,
+  startAiChat,
+  type AiChatMessage,
+} from "../ipc/ai";
 import type { OpenFile } from "../types/fs";
 
 interface ChatPanelProps {
@@ -10,7 +16,6 @@ interface ChatPanelProps {
 const STORAGE_KEYS = {
   provider: "loomide.ai.provider",
   model: "loomide.ai.model",
-  apiKey: "loomide.ai.apiKey",
 };
 
 const DEFAULT_MODELS: Record<string, string> = {
@@ -36,7 +41,8 @@ export function ChatPanel({ activeFile }: ChatPanelProps) {
     const stored = localStorage.getItem(STORAGE_KEYS.model);
     return stored ?? DEFAULT_MODELS[loadStored(STORAGE_KEYS.provider, "openai")];
   });
-  const [apiKey, setApiKey] = useState(() => loadStored(STORAGE_KEYS.apiKey, ""));
+  // API keys live in the Rust core (app config dir), not in webview storage.
+  const [apiKey, setApiKey] = useState("");
   const [includeFile, setIncludeFile] = useState(true);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
@@ -49,8 +55,27 @@ export function ChatPanel({ activeFile }: ChatPanelProps) {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.provider, provider);
     localStorage.setItem(STORAGE_KEYS.model, model);
-    localStorage.setItem(STORAGE_KEYS.apiKey, apiKey);
-  }, [provider, model, apiKey]);
+  }, [provider, model]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void aiGetApiKey(provider).then((key) => {
+      if (!cancelled) {
+        setApiKey(key);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [provider]);
+
+  const updateApiKey = useCallback(
+    (value: string) => {
+      setApiKey(value);
+      void aiSetApiKey(provider, value);
+    },
+    [provider],
+  );
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -173,7 +198,7 @@ export function ChatPanel({ activeFile }: ChatPanelProps) {
             className="chat-input-compact"
             type="password"
             value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
+            onChange={(event) => updateApiKey(event.target.value)}
             placeholder="API key"
             spellCheck={false}
           />

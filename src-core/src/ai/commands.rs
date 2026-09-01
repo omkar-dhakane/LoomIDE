@@ -1,5 +1,80 @@
 use super::{AiRouter, ChatChunk, ChatRequest, AI_CHUNK_EVENT};
-use tauri::{AppHandle, Emitter};
+use serde_json::Value;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Emitter, Manager};
+
+/// Non-streaming variant: collects the full response and returns it.
+/// Used by the diff-review flow (AI proposes a whole-file rewrite that the
+/// user must approve before anything touches disk).
+#[tauri::command]
+pub async fn ai_complete(request: ChatRequest) -> Result<String, String> {
+    let provider = AiRouter::provider_for(&request.provider).map_err(|error| error.to_string())?;
+    let collected = Arc::new(Mutex::new(String::new()));
+    let sink = collected.clone();
+
+    provider
+        .stream_chat(
+            &request,
+            Box::new(move |delta| {
+                if let Ok(mut buffer) = sink.lock() {
+                    buffer.push_str(&delta);
+                }
+            }),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let text = collected
+        .lock()
+        .map_err(|_| "Response buffer unavailable".to_string())?
+        .clone();
+    Ok(text)
+}
+
+fn key_store_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    Ok(dir.join("api-keys.json"))
+}
+
+fn read_key_store(app: &AppHandle) -> Result<HashMap<String, String>, String> {
+    let path = key_store_path(app)?;
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Ok(HashMap::new());
+    };
+    serde_json::from_str::<Value>(&raw)
+        .ok()
+        .and_then(|value| value.as_object().cloned())
+        .map(|map| {
+            map.into_iter()
+                .filter_map(|(key, value)| value.as_str().map(|text| (key, text.to_string())))
+                .collect()
+        })
+        .ok_or_else(|| "Failed to parse API key store".to_string())
+}
+
+#[tauri::command]
+pub fn ai_set_api_key(provider: String, key: String, app: AppHandle) -> Result<(), String> {
+    let mut store = read_key_store(&app)?;
+    if key.is_empty() {
+        store.remove(&provider);
+    } else {
+        store.insert(provider, key);
+    }
+    let path = key_store_path(&app)?;
+    let json = serde_json::to_string_pretty(&store).map_err(|error| error.to_string())?;
+    std::fs::write(path, json).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn ai_get_api_key(provider: String, app: AppHandle) -> Result<String, String> {
+    Ok(read_key_store(&app)?.get(&provider).cloned().unwrap_or_default())
+}
 
 /// List the provider ids the router supports.
 #[tauri::command]

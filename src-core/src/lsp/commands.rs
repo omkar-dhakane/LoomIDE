@@ -53,6 +53,10 @@ pub async fn lsp_start(
                 "hover": {
                     "contentFormat": ["markdown", "plaintext"]
                 },
+                "definition": {},
+                "references": {},
+                "rename": {},
+                "formatting": {},
                 "publishDiagnostics": {}
             }
         },
@@ -174,6 +178,103 @@ pub async fn lsp_completion(
                 "position": { "line": line, "character": character }
             }),
         )
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn lsp_definition(
+    server_id: String,
+    uri: String,
+    line: u32,
+    character: u32,
+    state: State<'_, LspState>,
+) -> Result<Value, String> {
+    position_request(&state, &server_id, "textDocument/definition", &uri, line, character, json!({}))
+        .await
+}
+
+#[tauri::command]
+pub async fn lsp_references(
+    server_id: String,
+    uri: String,
+    line: u32,
+    character: u32,
+    state: State<'_, LspState>,
+) -> Result<Value, String> {
+    position_request(
+        &state,
+        &server_id,
+        "textDocument/references",
+        &uri,
+        line,
+        character,
+        json!({ "context": { "includeDeclaration": true } }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn lsp_rename(
+    server_id: String,
+    uri: String,
+    line: u32,
+    character: u32,
+    new_name: String,
+    state: State<'_, LspState>,
+) -> Result<Value, String> {
+    position_request(
+        &state,
+        &server_id,
+        "textDocument/rename",
+        &uri,
+        line,
+        character,
+        json!({ "newName": new_name }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn lsp_formatting(
+    server_id: String,
+    uri: String,
+    tab_size: u32,
+    insert_spaces: bool,
+    state: State<'_, LspState>,
+) -> Result<Value, String> {
+    client(&state, &server_id)?
+        .request(
+            "textDocument/formatting",
+            json!({
+                "textDocument": { "uri": uri },
+                "options": { "tabSize": tab_size, "insertSpaces": insert_spaces }
+            }),
+        )
+        .await
+        .map_err(|error| error.to_string())
+}
+
+async fn position_request(
+    state: &State<'_, LspState>,
+    server_id: &str,
+    method: &str,
+    uri: &str,
+    line: u32,
+    character: u32,
+    extra: Value,
+) -> Result<Value, String> {
+    let mut params = json!({
+        "textDocument": { "uri": uri },
+        "position": { "line": line, "character": character }
+    });
+    if let (Some(target), Some(extra)) = (params.as_object_mut(), extra.as_object()) {
+        for (key, value) in extra {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+    client(state, server_id)?
+        .request(method, params)
         .await
         .map_err(|error| error.to_string())
 }

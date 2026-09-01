@@ -58,7 +58,7 @@ Do not deviate from these without being explicitly asked to reconsider them.
 - Don't add a new AI provider without adding it to the router trait — no one-off
   provider-specific code paths in feature modules.
 - Don't apply multi-file AI-generated changes directly to disk without going through
-  the diff-review flow (once it exists).
+  the diff-review flow (`DiffReview` modal — nothing writes until the user clicks Apply).
 
 ## How to verify your work
 
@@ -67,8 +67,29 @@ Do not deviate from these without being explicitly asked to reconsider them.
 - `npm run build && npm run typecheck` for the frontend
 - Manually note in your summary which of the above you ran and the result
 
-## Current phase
+## Current state
 
-We are building incrementally, one phase at a time, in separate sessions. Only work
-on the phase explicitly requested. Do not jump ahead to AI features, LSP integration,
-or agent mode unless asked — get the current phase fully working and tested first.
+- **File explorer + editor**: done. fs commands (`open_folder`, `read_file`,
+  `write_file`, `create_file`, `create_folder`, `rename_path`, `delete_path`) with
+  `ensure_within_root` sandboxing; live `notify` watcher → `workspace-fs-event`;
+  tabs, save (Ctrl+S), per-extension Monaco language.
+- **LSP**: done (generic, no language hardcoded). `src-core/lsp` spawns any LSP
+  server over stdio (`client.rs` = JSON-RPC framing/correlation, `commands.rs` =
+  `lsp_start/stop/did_open/did_change/did_close/completion/hover/definition/
+  references/rename/formatting`). `lsp-diagnostics` events feed Monaco markers.
+  Frontend server registry: `src-ui/src/lsp/servers.ts` (add new servers there).
+- **AI router**: done. `src-core/ai` — `ChatProvider` trait + `AiRouter`;
+  providers `openai`, `anthropic`, `ollama` (streaming SSE/NDJSON). Commands:
+  `ai_chat` (streams `ai-chat-chunk` events), `ai_complete` (whole response, used
+  by the diff-review flow), `ai_set_api_key` / `ai_get_api_key` (keys stored in
+  the app config dir — never in webview storage).
+- **Diff-review flow**: done. "AI edit" (wand button) → `DiffReview` modal with
+  Monaco DiffEditor; Apply writes via `write_file`, Discard does nothing.
+- **Not built yet**: agent mode, extension/plugin API (`extensions/` is still a
+  stub), multi-file AI edits, git integration UI.
+- Build note (Windows): `cargo` needs the MSVC linker + Windows SDK; both were
+  installed 2026-09-01 (VS Build Tools 18 + Windows SDK 10.0.26100) and plain
+  `cargo` now works.
+
+Work incrementally, one phase per session. Confirm with the user before starting
+agent mode or the extensions API.

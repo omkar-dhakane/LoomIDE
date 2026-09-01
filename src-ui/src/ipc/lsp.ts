@@ -58,6 +58,43 @@ export function lspHover(
   return invoke("lsp_hover", { serverId, uri, line, character });
 }
 
+export function lspDefinition(
+  serverId: string,
+  uri: string,
+  line: number,
+  character: number,
+): Promise<unknown> {
+  return invoke("lsp_definition", { serverId, uri, line, character });
+}
+
+export function lspReferences(
+  serverId: string,
+  uri: string,
+  line: number,
+  character: number,
+): Promise<unknown> {
+  return invoke("lsp_references", { serverId, uri, line, character });
+}
+
+export function lspRename(
+  serverId: string,
+  uri: string,
+  line: number,
+  character: number,
+  newName: string,
+): Promise<unknown> {
+  return invoke("lsp_rename", { serverId, uri, line, character, newName });
+}
+
+export function lspFormatting(
+  serverId: string,
+  uri: string,
+  tabSize = 2,
+  insertSpaces = true,
+): Promise<unknown> {
+  return invoke("lsp_formatting", { serverId, uri, tabSize, insertSpaces });
+}
+
 export function listenToLspDiagnostics(
   handler: (event: LspDiagnosticsEvent) => void,
 ): Promise<UnlistenFn> {

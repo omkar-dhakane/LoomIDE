@@ -40,17 +40,36 @@ impl ChatProvider for Ollama {
 
             // Ollama streams NDJSON: one JSON object per line.
             stream_lines(response, |line| {
-                let Ok(json) = serde_json::from_str::<serde_json::Value>(line) else {
-                    return;
-                };
-                if let Some(delta) = json
-                    .pointer("/message/content")
-                    .and_then(serde_json::Value::as_str)
-                {
-                    on_delta(delta.to_string());
+                if let Some(delta) = extract_delta(line) {
+                    on_delta(delta);
                 }
             })
             .await
         })
+    }
+}
+
+/// Parse one NDJSON line from the Ollama stream into a content delta.
+fn extract_delta(line: &str) -> Option<String> {
+    let json = serde_json::from_str::<serde_json::Value>(line).ok()?;
+    json.pointer("/message/content")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_delta;
+
+    #[test]
+    fn parses_message_content() {
+        let line = r#"{"model":"llama3.1","message":{"role":"assistant","content":"Hi"},"done":false}"#;
+        assert_eq!(extract_delta(line).as_deref(), Some("Hi"));
+    }
+
+    #[test]
+    fn ignores_final_metadata_line_and_garbage() {
+        assert!(extract_delta(r#"{"done":true,"total_duration":123}"#).is_none());
+        assert!(extract_delta("not json").is_none());
     }
 }

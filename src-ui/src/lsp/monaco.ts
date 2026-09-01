@@ -1,12 +1,46 @@
 import type { Monaco } from "@monaco-editor/react";
 import type * as monacoEditor from "monaco-editor";
-import { listenToLspDiagnostics, lspCompletion, lspHover } from "../ipc/lsp";
+import {
+  listenToLspDiagnostics,
+  lspCompletion,
+  lspDefinition,
+  lspFormatting,
+  lspHover,
+  lspReferences,
+  lspRename,
+} from "../ipc/lsp";
 import { serverForLanguage } from "./servers";
 import type {
   LspCompletionItem,
   LspDiagnosticsEvent,
   LspHover,
 } from "../types/lsp";
+
+interface LspRange {
+  start: { line: number; character: number };
+  end: { line: number; character: number };
+}
+
+interface LspLocation {
+  uri: string;
+  range: LspRange;
+}
+
+interface LspLocationLink {
+  targetUri: string;
+  targetRange: LspRange;
+  targetSelectionRange?: LspRange;
+}
+
+interface LspTextEdit {
+  range: { start: { line: number; character: number }; end: { line: number; character: number } };
+  newText: string;
+}
+
+interface LspWorkspaceEdit {
+  changes?: Record<string, LspTextEdit[]>;
+  documentChanges?: Array<{ textDocument: { uri: string }; edits: LspTextEdit[] }>;
+}
 
 let initialized = false;
 
@@ -87,6 +121,191 @@ export function setupMonacoLsp(monaco: Monaco): void {
   });
 
   void listenToLspDiagnostics((event) => applyDiagnostics(monaco, event));
+
+  monaco.languages.registerDefinitionProvider("*", {
+    provideDefinition: async (model, position) => {
+      const server = serverForLanguage(model.getLanguageId());
+      if (!server) {
+        return [];
+      }
+      try {
+        const raw = (await lspDefinition(
+          server.id,
+          model.uri.toString(),
+          position.lineNumber - 1,
+          position.column - 1,
+        )) as LspLocation | LspLocation[] | LspLocationLink[] | null;
+        return normalizeLocations(monaco, raw);
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  monaco.languages.registerReferenceProvider("*", {
+    provideReferences: async (model, position) => {
+      const server = serverForLanguage(model.getLanguageId());
+      if (!server) {
+        return [];
+      }
+      try {
+        const raw = (await lspReferences(
+          server.id,
+          model.uri.toString(),
+          position.lineNumber - 1,
+          position.column - 1,
+        )) as LspLocation[] | null;
+        return (raw ?? []).map((location) => toMonacoLocation(monaco, location));
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  monaco.languages.registerRenameProvider("*", {
+    provideRenameEdits: async (model, position, newName) => {
+      const server = serverForLanguage(model.getLanguageId());
+      if (!server) {
+        return { edits: [] };
+      }
+      try {
+        const raw = (await lspRename(
+          server.id,
+          model.uri.toString(),
+          position.lineNumber - 1,
+          position.column - 1,
+          newName,
+        )) as LspWorkspaceEdit | null;
+        return {
+          edits: workspaceEditToMonaco(monaco, raw),
+        };
+      } catch {
+        return { edits: [] };
+      }
+    },
+    resolveRenameLocation: async (model, position) => {
+      const word = model.getWordAtPosition(position);
+      if (!word) {
+        return {
+          range: new monaco.Range(
+            position.lineNumber,
+            position.column,
+            position.lineNumber,
+            position.column,
+          ),
+          text: "",
+        };
+      }
+      return {
+        range: new monaco.Range(
+          position.lineNumber,
+          word.startColumn,
+          position.lineNumber,
+          word.endColumn,
+        ),
+        text: word.word,
+      };
+    },
+  });
+
+  monaco.languages.registerDocumentFormattingEditProvider("*", {
+    provideDocumentFormattingEdits: async (model) => {
+      const server = serverForLanguage(model.getLanguageId());
+      if (!server) {
+        return [];
+      }
+      try {
+        const raw = (await lspFormatting(server.id, model.uri.toString())) as
+          | LspTextEdit[]
+          | null;
+        return (raw ?? []).map((edit) => ({
+          range: new monaco.Range(
+            edit.range.start.line + 1,
+            edit.range.start.character + 1,
+            edit.range.end.line + 1,
+            edit.range.end.character + 1,
+          ),
+          text: edit.newText,
+        }));
+      } catch {
+        return [];
+      }
+    },
+  });
+}
+
+function toMonacoLocation(
+  monaco: Monaco,
+  location: LspLocation,
+): monacoEditor.languages.Location {
+  return {
+    uri: monaco.Uri.parse(location.uri),
+    range: new monaco.Range(
+      location.range.start.line + 1,
+      location.range.start.character + 1,
+      location.range.end.line + 1,
+      location.range.end.character + 1,
+    ),
+  };
+}
+
+function normalizeLocations(
+  monaco: Monaco,
+  raw: LspLocation | LspLocation[] | LspLocationLink[] | null,
+): monacoEditor.languages.Location[] {
+  if (!raw) {
+    return [];
+  }
+  const list = Array.isArray(raw) ? raw : [raw];
+  return list.map((entry) => {
+    if ("targetUri" in entry) {
+      const link = entry;
+      const range = link.targetSelectionRange ?? link.targetRange;
+      return toMonacoLocation(monaco, { uri: link.targetUri, range });
+    }
+    return toMonacoLocation(monaco, entry);
+  });
+}
+
+function workspaceEditToMonaco(
+  monaco: Monaco,
+  edit: LspWorkspaceEdit | null,
+): monacoEditor.languages.IWorkspaceTextEdit[] {
+  const edits: monacoEditor.languages.IWorkspaceTextEdit[] = [];
+  if (!edit) {
+    return edits;
+  }
+
+  const pushEdits = (uri: string, textEdits: LspTextEdit[]) => {
+    for (const textEdit of textEdits) {
+      edits.push({
+        resource: monaco.Uri.parse(uri),
+        versionId: undefined,
+        textEdit: {
+          range: new monaco.Range(
+            textEdit.range.start.line + 1,
+            textEdit.range.start.character + 1,
+            textEdit.range.end.line + 1,
+            textEdit.range.end.character + 1,
+          ),
+          text: textEdit.newText,
+        },
+      });
+    }
+  };
+
+  if (edit.changes) {
+    for (const [uri, textEdits] of Object.entries(edit.changes)) {
+      pushEdits(uri, textEdits);
+    }
+  }
+  if (edit.documentChanges) {
+    for (const change of edit.documentChanges) {
+      pushEdits(change.textDocument.uri, change.edits);
+    }
+  }
+
+  return edits;
 }
 
 function applyDiagnostics(monaco: Monaco, event: LspDiagnosticsEvent): void {

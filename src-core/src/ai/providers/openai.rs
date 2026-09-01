@@ -43,24 +43,49 @@ impl ChatProvider for OpenAi {
             let response = ensure_success(response).await?;
 
             stream_lines(response, |line| {
-                let Some(data) = line.strip_prefix("data:") else {
-                    return;
-                };
-                let data = data.trim();
-                if data == "[DONE]" {
-                    return;
-                }
-                let Ok(json) = serde_json::from_str::<serde_json::Value>(data) else {
-                    return;
-                };
-                if let Some(delta) = json
-                    .pointer("/choices/0/delta/content")
-                    .and_then(serde_json::Value::as_str)
-                {
-                    on_delta(delta.to_string());
+                if let Some(delta) = extract_delta(line) {
+                    on_delta(delta);
                 }
             })
             .await
         })
+    }
+}
+
+/// Parse one SSE line from the OpenAI stream into a content delta.
+fn extract_delta(line: &str) -> Option<String> {
+    let data = line.strip_prefix("data:")?.trim();
+    if data == "[DONE]" {
+        return None;
+    }
+    let json = serde_json::from_str::<serde_json::Value>(data).ok()?;
+    json.pointer("/choices/0/delta/content")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_delta;
+
+    #[test]
+    fn parses_content_delta() {
+        let line = r#"data: {"choices":[{"delta":{"content":"hello"}}]}"#;
+        assert_eq!(extract_delta(line).as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn ignores_done_marker() {
+        assert_eq!(extract_delta("data: [DONE]"), None);
+    }
+
+    #[test]
+    fn ignores_non_data_lines_and_role_chunks() {
+        assert_eq!(extract_delta("event: message"), None);
+        assert_eq!(
+            extract_delta(r#"data: {"choices":[{"delta":{"role":"assistant"}}]}"#),
+            None
+        );
+        assert_eq!(extract_delta("data: not json"), None);
     }
 }

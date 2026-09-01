@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FilePlus, FolderOpen, FolderPlus, MessageSquare, Save } from "lucide-react";
+import { FilePlus, FolderOpen, FolderPlus, MessageSquare, Save, Wand2 } from "lucide-react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { aiComplete, aiGetApiKey } from "./ipc/ai";
 import { ChatPanel } from "./components/ChatPanel";
+import { DiffReview } from "./components/DiffReview";
 import { EditorTabs } from "./components/EditorTabs";
 import { FileTree } from "./components/FileTree";
 import { MonacoEditor } from "./editor/MonacoEditor";
@@ -30,6 +32,14 @@ function App() {
   const [activePath, setActivePath] = useState<string | null>(null);
   const [status, setStatus] = useState("Ready");
   const [chatOpen, setChatOpen] = useState(false);
+  const [diff, setDiff] = useState<{
+    path: string;
+    language: string;
+    original: string;
+    modified: string;
+    title: string;
+    generating: boolean;
+  } | null>(null);
   const unlistenRef = useRef<UnlistenFn | null>(null);
 
   const activeFile = useMemo(
@@ -291,6 +301,87 @@ function App() {
     [activePath],
   );
 
+  const handleAiEdit = useCallback(async () => {
+    if (!activeFile || diff) {
+      return;
+    }
+
+    const instruction = window.prompt("What should the AI change in this file?");
+    if (!instruction?.trim()) {
+      return;
+    }
+
+    const original = activeFile.contents;
+    const path = activeFile.path;
+    const language = languageForPath(path);
+    setDiff({
+      path,
+      language,
+      original,
+      modified: original,
+      title: `AI edit: ${instruction.trim()}`,
+      generating: true,
+    });
+    setStatus("AI is editing…");
+
+    try {
+      const apiKey = await aiGetApiKey(localStorage.getItem("loomide.ai.provider") ?? "openai");
+      const result = await aiComplete({
+        requestId: `edit-${Date.now()}`,
+        provider: localStorage.getItem("loomide.ai.provider") ?? "openai",
+        model: localStorage.getItem("loomide.ai.model") ?? "gpt-4o-mini",
+        apiKey: apiKey || undefined,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an expert editor. The user gives you a file and an instruction. " +
+              "Reply with ONLY the complete new file contents: no explanations, " +
+              "no markdown code fences, no commentary.",
+          },
+          {
+            role: "user",
+            content: `File: ${path}\n\nInstruction: ${instruction.trim()}\n\n\`\`\`\n${original}\n\`\`\``,
+          },
+        ],
+      });
+
+      setDiff({
+        path,
+        language,
+        original,
+        modified: stripCodeFences(result),
+        title: `AI edit: ${instruction.trim()}`,
+        generating: false,
+      });
+      setStatus("Review the AI diff — nothing is written until you apply it.");
+    } catch (error) {
+      setDiff(null);
+      setStatus(`AI edit failed: ${String(error)}`);
+    }
+  }, [activeFile, diff]);
+
+  const handleApplyDiff = useCallback(async () => {
+    if (!diff) {
+      return;
+    }
+    await writeWorkspaceFile(diff.path, diff.modified);
+    setOpenFiles((current) =>
+      current.map((file) =>
+        file.path === diff.path
+          ? { ...file, contents: diff.modified, dirty: false, version: file.version + 1 }
+          : file,
+      ),
+    );
+    const server = serverForLanguage(languageForPath(diff.path));
+    if (server) {
+      const file = openFiles.find((f) => f.path === diff.path);
+      void lspDidChange(server.id, uriForPath(diff.path), (file?.version ?? 1) + 1, diff.modified);
+    }
+    setStatus("Applied AI changes");
+    setDiff(null);
+  }, [diff, openFiles]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
@@ -356,6 +447,15 @@ function App() {
             onClose={handleCloseFile}
           />
           <button
+            className="icon-button"
+            type="button"
+            title="Edit this file with AI (shows a diff first)"
+            disabled={!activeFile || diff !== null}
+            onClick={() => void handleAiEdit()}
+          >
+            <Wand2 size={16} />
+          </button>
+          <button
             className="icon-button save-button"
             type="button"
             disabled={!activeFile || !activeFile.dirty}
@@ -398,6 +498,18 @@ function App() {
           <ChatPanel activeFile={activeFile} />
         </aside>
       ) : null}
+
+      {diff ? (
+        <DiffReview
+          title={diff.title}
+          language={diff.language}
+          original={diff.original}
+          modified={diff.modified}
+          generating={diff.generating}
+          onApply={() => void handleApplyDiff()}
+          onDiscard={() => setDiff(null)}
+        />
+      ) : null}
     </main>
   );
 }
@@ -414,6 +526,12 @@ function parentPath(path: string): string {
 
 function joinPath(base: string, name: string): string {
   return `${base.replace(/[\\/]+$/, "")}/${name}`;
+}
+
+function stripCodeFences(text: string): string {
+  const trimmed = text.trim();
+  const match = /^```[^\n]*\n([\s\S]*?)\n?```$/.exec(trimmed);
+  return match ? match[1] : trimmed;
 }
 
 function promptEntry(label: string, initial = ""): string | null {
